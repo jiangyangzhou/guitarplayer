@@ -1112,7 +1112,7 @@ Am  F  C  G</textarea>
       const sp=st.sp, top=st.lines[0], bot=st.lines[5];
       // x extent from the middle lines
       const ext=[];
-      for(const ly of st.lines){ const y=Math.round(ly); let bs=0,be=0,s=-1,gap=0; for(let x=0;x<=W;x++){ const d=x<W&&[y-1,y,y+1].some(yy=>yy>=3&&yy<H-3&&darkL(yy*W+x)&&(gray[(yy-3)*W+x]-gray[yy*W+x]>6||gray[(yy+3)*W+x]-gray[yy*W+x]>6)); if(d){ if(s<0)s=x; gap=0; } else if(s>=0){ gap++; if(gap>sp*1.2||x===W){ const e=x-gap; if(e-s>be-bs){bs=s;be=e;} s=-1; gap=0; } } } ext.push([bs,be]); }
+      for(const ly of st.lines){ const y=Math.round(ly); let bs=0,be=0,s=-1,gap=0; for(let x=0;x<=W;x++){ const d=x<W&&[y-1,y,y+1].some(yy=>yy>=3&&yy<H-3&&darkL(yy*W+x)&&(gray[(yy-3)*W+x]-gray[yy*W+x]>6||gray[(yy+3)*W+x]-gray[yy*W+x]>6)); if(d){ if(s<0)s=x; gap=0; } else if(s>=0){ gap++; if(gap>sp*2.4||x===W){ const e=x-gap; if(e-s>be-bs){bs=s;be=e;} s=-1; gap=0; } } } ext.push([bs,be]); }   // (the line is cleared behind numbers: a two-digit fret in a wide font leaves a gap of nearly two spaces)
       const med=a=>{const t=a.slice().sort((p,q)=>p-q); return t[Math.floor(t.length/2)];};
       const x0=med(ext.map(e=>e[0])), x1=med(ext.map(e=>e[1]));
 
@@ -1435,12 +1435,20 @@ Am  F  C  G</textarea>
           if(!DL(y)){y++;continue;}
           let e=y; while(e+1<bh&&DL(e+1)) e++;
           if((e-y+1)>sp*1.1){
-            // keep the top only if something beside it looks like part of a number
-            let nb=0; const reach=Math.round(sp*.4);
-            for(let yy=y;yy<=Math.min(e,y+keepTop);yy++){ if(lineRow[yy]) continue; for(let dx=2;dx<=reach;dx++){ if(x-dx>=0&&M[yy*bw+x-dx]) nb++; if(x+dx<bw&&M[yy*bw+x+dx]) nb++; } }
-            // a run that reaches below the staff is a note stem: leave it attached, the number is cut off its top later
-            if(!(e>=bh-1 && nb>=3)) for(let yy=y;yy<=e;yy++) M[yy*bw+x]=0;
-
+            // A number standing on its stem (a "1" above all) leaves a faint gap between the two: the run is still dark there,
+            // only clearly lighter than the rest of the column. Cut the run at such rows and judge each piece on its own, so
+            // the stem goes and the number stays.
+            const col=[]; for(let yy=y;yy<=e;yy++) col.push(gray[(yy+by0)*W+x+bx0]);
+            const med=col.slice().sort((p,q)=>p-q)[col.length>>1], faint=med+Math.max(35,(TL-med)*.5), pieces=[]; let s0=-1;
+            for(let yy=y;yy<=e+1;yy++){ const on=yy<=e&&col[yy-y]<faint; if(on&&s0<0) s0=yy; if(!on&&s0>=0){ pieces.push([s0,yy-1]); s0=-1; } }
+            for(const [pa,pb] of pieces){ if(pb-pa+1<=sp*1.1) continue;
+              // keep the top only if something beside it looks like part of a number
+              let nb=0; const reach=Math.round(sp*.4);
+              for(let yy=pa;yy<=Math.min(pb,pa+keepTop);yy++){ if(lineRow[yy]) continue; for(let dx=2;dx<=reach;dx++){ if(x-dx>=0&&M[yy*bw+x-dx]) nb++; if(x+dx<bw&&M[yy*bw+x+dx]) nb++; } }
+              // a run that reaches below the staff is a note stem: leave it attached, the number is cut off its top later
+              if(!(pb>=bh-1 && nb>=3)) for(let yy=pa;yy<=pb;yy++) M[yy*bw+x]=0; }
+            // the faint rows themselves belong to neither: clear them so the number is not left hanging on a stub
+            if(pieces.length>1) for(let yy=y;yy<=e;yy++) if(col[yy-y]>=faint&&!lineRow[yy]) M[yy*bw+x]=0;
           }
           y=e+1;
         }
