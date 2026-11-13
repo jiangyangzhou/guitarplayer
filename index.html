@@ -709,11 +709,17 @@ Am  F  C  G</textarea>
       // (the gap between the digits sits where the middle of an x would be), so read the two halves first: when both are
       // digits the classifier is sure of and the whole crop is not an x to it, the mark is that number.
       let pair=null;
-      if(n.parts?.length===2&&(old==='x'||(typeof old==='number'&&old>9))){
+      // Two digits printed close together, or blurred by a small screenshot, come out as one wide mark: cut it at its
+      // emptiest column near the middle and read the halves the same way.
+      if(!n.parts&&(old==='x'||typeof old==='number')){ const w=n.x1-n.x0+1,h=n.y1-n.y0+1,ly=Math.round(st.lines[n.li]);
+        if(w>=h*1.05&&w<=h*1.9&&w>=st.sp*.8){ let cut=-1,least=1e9;
+          for(let x=Math.round(n.x0+w*.35);x<=n.x0+w*.65;x++){ let v=0; for(let y=n.y0;y<=n.y1;y++){ if(Math.abs(y-ly)<=1.5) continue; v+=ink(x,y); } if(v<least){ least=v; cut=x; } }
+          if(cut>0&&least<h*.25) n.parts=[{x0:n.x0,x1:cut-1,y0:n.y0,y1:n.y1,cut:true},{x0:cut+1,x1:n.x1,y0:n.y0,y1:n.y1,cut:true}]; } }
+      if(n.parts?.length===2&&(old==='x'||typeof old==='number')){
         const left=infer(n.parts[0],st),right=infer(n.parts[1],st),value=left.d*10+right.d;
         if(left.d>=1&&left.d<=2&&right.d<=9&&value<=24){pair={value,confidence:Math.min(left.prob,right.prob)};add(n,value,pair.confidence,'two-digit-parts');stats.multiDigit++;n.neural.split=pair;}
       }
-      const pairSure=pair&&pair.confidence>=.97&&(!(r.d===10&&r.prob>=.9)||aspect>=1.25);   // (an x is about as wide as it is tall; two digits side by side are wider)
+      const pairSure=pair&&pair.confidence>=(n.parts[0].cut?.99:.97)&&(!(r.d===10&&r.prob>=.9)||(aspect>=1.25&&!n.parts[0].cut));   // (an x is about as wide as it is tall; two digits side by side are wider)
       if(pairSure){n.f=pair.value;n.conf=pair.confidence;n.uncertain=false;n.decision.reason='verified-two-digit';if(pair.value!==old)stats.corrected++;return;}
       // A stem hanging from a note on a higher string runs straight through the lower strings; where it crosses one,
       // line removal leaves a short upright stroke that reads as 1, 21, 3 ... The ink continues above the mark along the stem.
@@ -2118,11 +2124,16 @@ Am  F  C  G</textarea>
 
   // Staff line spacing from a quick look at long dark rows: the median gap between neighbouring lines that repeat evenly.
   function estimateSpacing(imageData){
-    const {width:W,height:H,data:src}=imageData, rows=[];
-    for(let y=0;y<H;y++){ let c=0; const o=y*W*4; for(let x=0;x<W;x++){ const i=o+x*4; if(src[i]*77+src[i+1]*151+src[i+2]*28<190*256) c++; } rows.push(c>=W*.3); }
-    const cs=[]; for(let y=0;y<H;y++){ if(!rows[y]) continue; let e=y; while(e+1<H&&rows[e+1]) e++; if(e-y<=6) cs.push((y+e)/2); y=e; }
-    const gaps=[]; for(let i=2;i<cs.length;i++){ const a=cs[i-1]-cs[i-2], b=cs[i]-cs[i-1]; if(a>=4&&a<=80&&Math.abs(a-b)<Math.max(1.5,a*.12)) gaps.push(a); }
-    if(gaps.length<4) return null; gaps.sort((p,q)=>p-q); return gaps[gaps.length>>1];
+    const {width:W,height:H,data:src}=imageData;
+    // thin staff lines on a small screenshot are light grey, not black: try lighter thresholds until lines show up
+    for(const tl of [190,215,232,244]){
+      const rows=[];
+      for(let y=0;y<H;y++){ let c=0; const o=y*W*4; for(let x=0;x<W;x++){ const i=o+x*4; if(src[i]*77+src[i+1]*151+src[i+2]*28<tl*256) c++; } rows.push(c>=W*.3); }
+      const cs=[]; for(let y=0;y<H;y++){ if(!rows[y]) continue; let e=y; while(e+1<H&&rows[e+1]) e++; if(e-y<=6) cs.push((y+e)/2); y=e; }
+      const gaps=[]; for(let i=2;i<cs.length;i++){ const a=cs[i-1]-cs[i-2], b=cs[i]-cs[i-1]; if(a>=4&&a<=80&&Math.abs(a-b)<Math.max(1.5,a*.12)) gaps.push(a); }
+      if(gaps.length>=4){ gaps.sort((p,q)=>p-q); return gaps[gaps.length>>1]; }
+    }
+    return null;
   }
   // Draw a picture for scanning at the size this reader works best at: tab lines about 13.5 px apart. Small or blurry
   // screenshots are enlarged, very large ones reduced; the reader and everything drawn over its result use this copy.
