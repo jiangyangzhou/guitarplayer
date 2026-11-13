@@ -672,7 +672,7 @@ Am  F  C  G</textarea>
       n.candidates=[];add(n,n.f,n.conf||.5,n.strum?'arrow':'geometry/template');
       for(const v of n.thresholdVotes||[])add(n,v.f,v.score/Math.max(1,...n.thresholdVotes.map(v=>v.score)),'threshold-vote');
       n.decision={original:n.f,reason:'retained-geometry'};
-      if(n.strum||n.li<0||n.f==='x'&&n.conf>=.85)return;
+      if(n.strum||n.li<0||n.f==='x'&&n.conf>=.85&&!n.parts)return;   // (an x made from two side-by-side marks may be an 11: checked below)
       if(typeof n.f!=='number'&&n.f!=='x')return;
       if(wavy(n,st)){n.neural={skipped:'arrow'};n.uncertain=true;stats.uncertain++;n.decision.reason='arrow-conflict';return;}
       const r=infer(n,st),old=n.f;stats.checked++;n.neural={digit:r.d,prob:r.prob,template:old};offer(n,r,'gray-crop');
@@ -686,6 +686,16 @@ Am  F  C  G</textarea>
       const aspect=(n.x1-n.x0+1)/(n.y1-n.y0+1),narrow=n.x1-n.x0<st.sp*1.1,crossHit=cross(n,st);
       // An X straddling the string line is often split by line removal into two halves that template-match as 12/14/11.
       const xLike=old===1||old===11||(typeof old==='number'&&old>9);
+      // A fret number of two digits (10-24) is two separate marks side by side. The cross checks below fire on most of them
+      // (the gap between the digits sits where the middle of an x would be), so read the two halves first: when both are
+      // digits the classifier is sure of and the whole crop is not an x to it, the mark is that number.
+      let pair=null;
+      if(n.parts?.length===2&&(old==='x'||(typeof old==='number'&&old>9))){
+        const left=infer(n.parts[0],st),right=infer(n.parts[1],st),value=left.d*10+right.d;
+        if(left.d>=1&&left.d<=2&&right.d<=9&&value<=24){pair={value,confidence:Math.min(left.prob,right.prob)};add(n,value,pair.confidence,'two-digit-parts');stats.multiDigit++;n.neural.split=pair;}
+      }
+      const pairSure=pair&&pair.confidence>=.97&&!(r.d===10&&r.prob>=.9);
+      if(pairSure){n.f=pair.value;n.conf=pair.confidence;n.uncertain=false;n.decision.reason='verified-two-digit';if(pair.value!==old)stats.corrected++;return;}
       // A stem hanging from a note on a higher string runs straight through the lower strings; where it crosses one,
       // line removal leaves a short upright stroke that reads as 1, 21, 3 ... The ink continues above the mark along the stem.
       // between two marks of one stacked chord the stem joining them crosses the string in between: a "+" that reads as 1 or 4
@@ -694,15 +704,8 @@ Am  F  C  G</textarea>
       // Any digit whose crop the classifier calls an x with near certainty, and whose source shows crossing diagonals, is an x.
       if(typeof old==='number'&&narrow&&r.d===10&&r.prob>=.97&&stable&&crossHit>.12){n.f='x';n.conf=r.prob;n.uncertain=false;n.decision.reason='classifier-cross';stats.corrected++;return;}
       if(xLike&&narrow&&((r.d===10&&r.prob>=.9)||crossHit>.12)){n.f='x';n.conf=Math.max(.9,r.d===10?r.prob:0);n.neural.geometry=crossHit>.12?'cross':undefined;n.uncertain=false;n.decision.reason=r.d===10?'two-crop-cross':'source-diagonals';stats.corrected++;return;}
-      if(typeof old==='number'&&old>9&&n.parts?.length===2){
-        const left=infer(n.parts[0],st),right=infer(n.parts[1],st),value=left.d*10+right.d;
-        if(left.d>=1&&left.d<=2&&right.d<=9&&value<=24){
-          const confidence=Math.min(left.prob,right.prob);add(n,value,confidence,'two-digit-parts');stats.multiDigit++;
-          n.neural.split={value,confidence};
-          if(confidence>=.97&&!(r.d===10&&r.prob>=.995&&stable)){
-            n.f=value;n.conf=confidence;n.decision.reason='verified-two-digit';if(value!==old)stats.corrected++;return;
-          }
-        }
+      if(pair&&typeof old==='number'&&pair.confidence>=.97&&!(r.d===10&&r.prob>=.995&&stable)){
+        n.f=pair.value;n.conf=pair.confidence;n.decision.reason='verified-two-digit';if(pair.value!==old)stats.corrected++;return;
       }
       if((old===1||old===11)&&r.d===7&&narrow&&crossHit>.12){n.f='x';n.conf=.9;n.neural.geometry='cross';n.decision.reason='source-diagonals';stats.corrected++;return;}
       // An existing x confirmed by the classifier or the diagonal check should not sit in the review list with low confidence.
