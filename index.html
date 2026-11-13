@@ -650,6 +650,25 @@ Am  F  C  G</textarea>
       if(n.x1-n.x0+1>sp*.75) return false;
       const cx=Math.round(n.x), run=(y0,y1)=>{ let hit=0,c=0; for(let y=Math.round(y0);y<=y1;y++){ if(st.lines.some(l=>Math.abs(y-l)<1.5)) continue; c++; if([-1,0,1].some(dx=>ink(cx+dx,y)>.2)) hit++; } return c<2||hit/c>.8; };
       return run(n.y0,n.y1)&&(run(up.y1+1,n.y0-1)||run(n.y1+1,dn.y0-1)); };
+    // A stem that runs up through a chord is drawn around the numbers, so between two of them it is a short bare stroke
+    // crossing the empty string in between: exactly a "1" to the classifier. Unlike a printed 1 it is no wider than the stem
+    // below it, sits dead on the stem's column, has no flag or foot, and the string line runs right up to it on both sides.
+    const bareStemPiece=(n,st)=>{
+      const sp=st.sp, sm=(st.stems||[]).find(s=>Math.abs((s.x0+s.x1)/2-(n.x0+n.x1)/2)<=1.2); if(!sm||sm.virtual) return false;
+      if(n.x1-n.x0>sm.x1-sm.x0+1) return false;
+      if(!st.notes.some(o=>o!==n&&o.li>=0&&o.li<n.li&&Math.abs(o.x-n.x)<sp*.45)) return false;
+      const cx=(sm.x0+sm.x1)/2, half=(sm.x1-sm.x0)/2+1, ly=Math.round(st.lines[n.li]); let stray=0;
+      for(let y=n.y0;y<=n.y1;y++){ if(Math.abs(y-ly)<=1.5) continue; for(let x=Math.round(cx-sp*.45);x<=cx+sp*.45;x++){ if(Math.abs(x-cx)<=half) continue; if(ink(x,y)>.3) stray++; } }
+      if(stray>1) return false;
+      const touch=side=>[1.5,2.5,3.5].filter(d=>[-1,0,1].some(dy=>ink(cx+side*(half+d),ly+dy)>.25)).length>=2;
+      return touch(-1)&&touch(1); };
+    // ... and the other way round: a printed "1" standing on its stem is wider than the stem and has a flag beside the stroke.
+    const flaggedOne=(n,st)=>{
+      const sp=st.sp, sm=(st.stems||[]).find(s=>(s.x0+s.x1)/2>=n.x0-2&&(s.x0+s.x1)/2<=n.x1+2); if(!sm) return false;
+      if(n.x1-n.x0<=sm.x1-sm.x0+1) return false;
+      const cx=(sm.x0+sm.x1)/2, half=(sm.x1-sm.x0)/2+1, ly=Math.round(st.lines[n.li]); let stray=0;
+      for(let y=n.y0;y<=n.y1;y++){ if(Math.abs(y-ly)<=1.5) continue; for(let x=n.x0-1;x<=n.x1+1;x++){ if(Math.abs(x-cx)<=half) continue; if(ink(x,y)>.35) stray++; } }
+      return stray>=3; };
     const add=(n,f,confidence,source)=>{
       const list=n.candidates||(n.candidates=[]);let c=list.find(c=>c.f===f);
       if(!c){c={f,confidence:0,evidence:[]};list.push(c);}
@@ -699,8 +718,10 @@ Am  F  C  G</textarea>
       // A stem hanging from a note on a higher string runs straight through the lower strings; where it crosses one,
       // line removal leaves a short upright stroke that reads as 1, 21, 3 ... The ink continues above the mark along the stem.
       // between two marks of one stacked chord the stem joining them crosses the string in between: a "+" that reads as 1 or 4
-      if(typeof old==='number'&&old<=9&&betweenStack(n,st)){n.stemPiece=true;n.decision.reason='stem-in-chord';stats.corrected++;return;}
-      if(typeof old==='number'&&(r.d===1||r.d===11||r.prob<.9)&&passThrough(n,st)){n.stemPiece=true;n.decision.reason='stem-crossing';stats.corrected++;return;}
+      const printedOne=old===1&&r.d===1&&r.prob>=.98&&flaggedOne(n,st);
+      if(typeof old==='number'&&old<=9&&!printedOne&&betweenStack(n,st)){n.stemPiece=true;n.decision.reason='stem-in-chord';stats.corrected++;return;}
+      if((old===1||r.d===1)&&typeof old==='number'&&old<=9&&bareStemPiece(n,st)){n.stemPiece=true;n.decision.reason='bare-stem-piece';stats.corrected++;return;}
+      if(typeof old==='number'&&!printedOne&&(r.d===1||r.d===11||r.prob<.9)&&passThrough(n,st)){n.stemPiece=true;n.decision.reason='stem-crossing';stats.corrected++;return;}
       // Any digit whose crop the classifier calls an x with near certainty, and whose source shows crossing diagonals, is an x.
       if(typeof old==='number'&&narrow&&r.d===10&&r.prob>=.97&&stable&&crossHit>.12){n.f='x';n.conf=r.prob;n.uncertain=false;n.decision.reason='classifier-cross';stats.corrected++;return;}
       if(xLike&&narrow&&((r.d===10&&r.prob>=.9)||crossHit>.12)){n.f='x';n.conf=Math.max(.9,r.d===10?r.prob:0);n.neural.geometry=crossHit>.12?'cross':undefined;n.uncertain=false;n.decision.reason=r.d===10?'two-crop-cross':'source-diagonals';stats.corrected++;return;}
@@ -719,6 +740,7 @@ Am  F  C  G</textarea>
       else if(proposed!==old){n.uncertain=true;n.decision.reason='insufficient-evidence';stats.uncertain++;}
     }));
     result.staves.forEach(st=>{
+      st.stemPieces=st.notes.filter(n=>n.stemPiece);   // kept for the review overlay and for debugging
       st.notes=st.notes.filter(n=>!n.stemPiece);
       st.notes.forEach(n=>{add(n,n.f,n.conf||.5,'selected');n.candidates.sort((a,b)=>b.confidence-a.confidence);});
       (st.labels||[]).forEach(l=>{l.candidates=(l.alts||[]).map(a=>({name:a.name,confidence:a.conf,source:'text'}));if(!l.candidates.some(a=>a.name===l.name))l.candidates.push({name:l.name,confidence:l.conf,source:l.diagramMarkerRecovered?'repeated-diagrams':'diagram/text'});});
@@ -787,7 +809,9 @@ Am  F  C  G</textarea>
     const fonts=['Arial','Helvetica','Liberation Sans','DejaVu Sans','Verdana','Times New Roman','sans-serif','serif','PingFang SC','Microsoft YaHei'];
     const c=document.createElement('canvas'); c.width=90; c.height=110; const g=c.getContext('2d',{willReadFrequently:true});
     LTPL=[];
-    for(const f of fonts) for(const wt of ['400','700']) for(const ch of LETTERS){
+    // (chord names are often set in italics: Guitar Pro, alphaTab and many song books)
+    for(const f of fonts) for(const wt of ['400','700','italic 400','italic 700']) for(const ch of LETTERS){
+      if(wt[0]==='i'&&!/Arial|Liberation Sans|Times|^serif$|^sans-serif$/.test(f)) continue;
       g.fillStyle='#fff'; g.fillRect(0,0,90,110); g.fillStyle='#000'; g.font=`${wt} 64px "${f}"`; g.textBaseline='middle'; g.fillText(ch,10,55);
       const id=g.getImageData(0,0,90,110).data, bin=new Uint8Array(9900);
       for(let i=0;i<9900;i++) bin[i]=id[i*4]<128?1:0;
