@@ -60,7 +60,7 @@ const STYLES = [
   const browser = await chromium.launch();
   const page = await browser.newPage();
   page.on('pageerror', e => console.error('pageerror', e.message));
-  await page.goto('file://' + path.join(root, 'index.html'));
+  await page.goto('file://' + path.join(root, process.env.HTML || 'index.html'));
   await page.addScriptTag({ path: path.join(__dirname, 'render.js') });
   await page.evaluate(() => document.fonts.ready);
   const filter = opt('filter'), seeds = +(opt('seeds') || 3), dump = opt('dump');

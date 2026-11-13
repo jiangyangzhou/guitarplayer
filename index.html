@@ -713,7 +713,7 @@ Am  F  C  G</textarea>
         const left=infer(n.parts[0],st),right=infer(n.parts[1],st),value=left.d*10+right.d;
         if(left.d>=1&&left.d<=2&&right.d<=9&&value<=24){pair={value,confidence:Math.min(left.prob,right.prob)};add(n,value,pair.confidence,'two-digit-parts');stats.multiDigit++;n.neural.split=pair;}
       }
-      const pairSure=pair&&pair.confidence>=.97&&!(r.d===10&&r.prob>=.9);
+      const pairSure=pair&&pair.confidence>=.97&&(!(r.d===10&&r.prob>=.9)||aspect>=1.25);   // (an x is about as wide as it is tall; two digits side by side are wider)
       if(pairSure){n.f=pair.value;n.conf=pair.confidence;n.uncertain=false;n.decision.reason='verified-two-digit';if(pair.value!==old)stats.corrected++;return;}
       // A stem hanging from a note on a higher string runs straight through the lower strings; where it crosses one,
       // line removal leaves a short upright stroke that reads as 1, 21, 3 ... The ink continues above the mark along the stem.
@@ -1439,8 +1439,15 @@ Am  F  C  G</textarea>
             // only clearly lighter than the rest of the column. Cut the run at such rows and judge each piece on its own, so
             // the stem goes and the number stays.
             const col=[]; for(let yy=y;yy<=e;yy++) col.push(gray[(yy+by0)*W+x+bx0]);
-            const med=col.slice().sort((p,q)=>p-q)[col.length>>1], faint=med+Math.max(35,(TL-med)*.5), pieces=[]; let s0=-1;
-            for(let yy=y;yy<=e+1;yy++){ const on=yy<=e&&col[yy-y]<faint; if(on&&s0<0) s0=yy; if(!on&&s0>=0){ pieces.push([s0,yy-1]); s0=-1; } }
+            // (one cut only, where a number on top would end, and only at a real dip: rows clearly lighter than the ink just
+            // above and just below them. A thin grey stem flickers a little all the way down; that is not a gap.)
+            const pieces=[[y,e]], at=k=>col[k-y], lo=(a,b)=>{ let m=255; for(let k=Math.max(y,a);k<=Math.min(e,b);k++) m=Math.min(m,at(k)); return m; };
+            for(let yy=y+Math.ceil(sp*.35);yy<=Math.min(e-3,y+Math.floor(sp*1.1));yy++){ const lim=lo(yy-3,yy-1)+30; if(at(yy)<lim) continue;
+              let z=yy; while(z+1<e&&at(z+1)>=lim) z++;
+              // only in a column that carries a rhythm stem below the staff (the upright strokes of the TAB clef letters carry none)
+              if(!stems.some(sm=>x+bx0>=sm.x0-1&&x+bx0<=sm.x1+1)) break;
+              if(z-yy+1<=Math.max(2,sp*.25)&&lo(yy,z)>=lo(z+1,z+3)+30){ pieces.length=0; pieces.push([y,yy-1],[z+1,e]); break; }
+              yy=z; }
             for(const [pa,pb] of pieces){ if(pb-pa+1<=sp*1.1) continue;
               // keep the top only if something beside it looks like part of a number
               let nb=0; const reach=Math.round(sp*.4);
@@ -1448,7 +1455,7 @@ Am  F  C  G</textarea>
               // a run that reaches below the staff is a note stem: leave it attached, the number is cut off its top later
               if(!(pb>=bh-1 && nb>=3)) for(let yy=pa;yy<=pb;yy++) M[yy*bw+x]=0; }
             // the faint rows themselves belong to neither: clear them so the number is not left hanging on a stub
-            if(pieces.length>1) for(let yy=y;yy<=e;yy++) if(col[yy-y]>=faint&&!lineRow[yy]) M[yy*bw+x]=0;
+            if(pieces.length>1) for(let yy=pieces[0][1]+1;yy<pieces[1][0];yy++) if(!lineRow[yy]) M[yy*bw+x]=0;
           }
           y=e+1;
         }
