@@ -41,6 +41,13 @@ const STYLES = [
   { name: 'jpeg-q25-small', st: { sp: 11 }, jpeg: .25 },
   { name: 'high-frets', st: {}, piece: { high: .6 } },
   { name: 'high-frets-serif', st: { font: 'Liberation Serif', fsize: 1.25 }, piece: { high: .6 } },
+  { name: 'through-stems', st: { stemThrough: true } },
+  { name: 'through-stems-mix', st: { stemThrough: true, font: 'Liberation Serif', fsize: 1.25 }, piece: { kind: 'mix' } },
+  { name: 'through-stems-small', st: { stemThrough: true, sp: 11 }, piece: { kind: 'mix', high: .3 } },
+  { name: 'through-low-quarter', st: { stemThrough: 'low' }, piece: { kind: 'quarter' } },
+  { name: 'strum-arrows', st: {}, piece: { kind: 'strum' } },
+  { name: 'strum-arrows-filled', st: { arrowFill: true, sp: 12 }, piece: { kind: 'strum' } },
+  { name: 'strum-arrows-large', st: { sp: 20, lineW: 2, barsPerLine: 3 }, piece: { kind: 'strum' } },
   { name: 'wide-bars', st: { barW: 44, barsPerLine: 2 } },
   { name: 'narrow-bars', st: { barW: 20, barsPerLine: 5 } },
 ];

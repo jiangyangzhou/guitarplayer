@@ -16,7 +16,7 @@ window.TabBench = (function () {
     const R = rng(seed), pick = a => a[Math.floor(R() * a.length)], names = Object.keys(SHAPES), bars = [];
     for (let b = 0; b < o.bars; b++) {
       const chord = pick(names), sh = SHAPES[chord], bassI = sh.findIndex(f => f >= 0), ev = [];
-      const fretAt = i => { let f = sh[i] < 0 ? 0 : sh[i]; if (R() < o.high) f = Math.floor(R() * 20) + 3; return (o.x && R() < o.x) ? 'x' : f; };
+      const fretAt = i => { if (o.only) return pick(o.only); let f = sh[i] < 0 ? 0 : sh[i]; if (R() < o.high) f = Math.floor(R() * 20) + 3; return (o.x && R() < o.x) ? 'x' : f; };
       const kind = o.kind === 'mix' ? pick(['arp', 'arp', 'sixteenth', 'melody', 'quarter']) : o.kind;
       if (kind === 'arp') {
         const pat = pick([[3, 2, 1, 2, 3, 2, 1], [3, 2, 3, 1, 3, 2, 3], [4, 3, 2, 3, 1, 3, 2], [3, 1, 2, 3, 1, 2, 3]]);
@@ -34,6 +34,12 @@ window.TabBench = (function () {
           const d2 = (dur === 1 && on % 2 === 0 && on + 2 <= 16) ? 1 : dur; ev.push({ on, dur: d2, notes: [[s, f]] }); on += d2; if (d2 === 1 && on % 2) { ev.push({ on, dur: 1, notes: [[1 + Math.floor(R() * 4), Math.floor(R() * 8)]] }); on += 1; } }
       } else if (kind === 'quarter') {
         for (let k = 0; k < 4; k++) { const notes = []; for (let i = 0; i < 6; i++) if (sh[i] >= 0 && (k === 0 || i >= 2) && R() < .8) notes.push([sn(i), fretAt(i)]); if (!notes.length) notes.push([sn(bassI), fretAt(bassI)]); ev.push({ on: k * 4, dur: 4, notes }); }
+      }
+      else if (kind === 'strum') {
+        const pat = pick([[0, 4, 6, 8, 12, 14], [0, 4, 6, 10, 12, 14], [0, 2, 4, 6, 8, 10, 12, 14], [0, 4, 8, 10, 12, 14]]);
+        pat.forEach((on, i) => { const nx = i + 1 < pat.length ? pat[i + 1] : 16, up = on % 4 === 2 && R() < .8; ev.push({ on, dur: nx - on > 2 ? 4 : 2, notes: [], strum: up ? 'U' : 'D', from: up ? 1 : (i === 0 ? sn(bassI) : 4), to: up ? 3 : 1 }); });
+        // durations must tile the bar for the beams to read: recompute as distance to the next onset
+        ev.forEach((e, i) => { e.dur = (i + 1 < ev.length ? ev[i + 1].on : 16) - e.on; });
       }
       // one note per string in a column
       ev.forEach(e => { const seen = new Set(); e.notes = e.notes.filter(n => !seen.has(n[0]) && seen.add(n[0])); });
@@ -75,10 +81,20 @@ window.TabBench = (function () {
             g.fillStyle = col(st.ink); g.fillText(txt, x, Math.round(y + (asc - desc) / 2));
           });
           if (st.stems) {
-            const low = Math.max(...e.notes.map(n => n[0])), sy0 = Math.round(y0 + 5 * sp + sp * st.stemGap), sy1 = Math.round(y0 + 5 * sp + sp * 2.6);
+            const low = Math.max(0, ...e.notes.map(n => n[0])), sy0 = Math.round(y0 + 5 * sp + sp * st.stemGap), sy1 = Math.round(y0 + 5 * sp + sp * 2.6);
             g.strokeStyle = col(st.ink); g.lineWidth = Math.max(1, Math.round(sp * .09)); const X = x + (g.lineWidth % 2 ? .5 : 0);
-            g.beginPath(); g.moveTo(X, low === 6 ? sy0 + sp * .35 : sy0); g.lineTo(X, sy1); g.stroke();
+            if (st.stemThrough && e.notes.length) {   // from the beam up to the highest note, broken around each number
+              const strs = e.notes.map(n => n[0]).sort((a, b) => a - b), top = st.stemThrough === 'low' ? strs[strs.length - 1] : strs[0], gap = sp * .48;
+              let ya = y0 + (top - 1) * sp + gap;
+              strs.filter(q => q > top).concat([99]).forEach(q => { const yb = q === 99 ? sy1 : y0 + (q - 1) * sp - gap; if (yb > ya) { g.beginPath(); g.moveTo(X, ya); g.lineTo(X, yb); g.stroke(); } ya = y0 + (q - 1) * sp + gap; });
+            } else { g.beginPath(); g.moveTo(X, low === 6 ? sy0 + sp * .35 : sy0); g.lineTo(X, sy1); g.stroke(); }
             e._x = x; e._sy1 = sy1;
+          }
+          if (e.strum) {   // arrow across the strings: the head points where the stroke ends (down-strum: towards the high strings, drawn upwards)
+            const yA = y0 + (Math.max(e.from, e.to) - 1) * sp + sp * .35, yB = y0 + (Math.min(e.from, e.to) - 1) * sp - sp * .35, tip = e.strum === 'D' ? yB : yA, dir = e.strum === 'D' ? 1 : -1, hw = sp * .32, hl = sp * .6;
+            g.strokeStyle = col(st.ink); g.fillStyle = col(st.ink); g.lineWidth = Math.max(1, Math.round(sp * .1)); const X = x + (g.lineWidth % 2 ? .5 : 0);
+            g.beginPath(); g.moveTo(X, yA); g.lineTo(X, yB); g.stroke();
+            g.beginPath(); g.moveTo(X - hw, tip + dir * hl); g.lineTo(X, tip); g.lineTo(X + hw, tip + dir * hl); if (st.arrowFill) { g.closePath(); g.fill(); } else g.stroke();
           }
         });
         if (st.stems) {   // beams within each beat
@@ -114,8 +130,8 @@ window.TabBench = (function () {
     const n = Math.max(gt.length, got.length);
     for (let i = 0; i < n; i++) {
       const G = gt[i], R = got[i];
-      const gs = []; if (G) G.events.forEach(e => e.notes.forEach(([s, f]) => gs.push({ on: e.on, s, f })));
-      const rs = []; if (R) R.slots.forEach((sl, k) => sl && sl.forEach(nt => { if (nt.li >= 0) rs.push({ on: k * 4 / R.res, s: nt.li + 1, f: nt.f }); }));
+      const gs = []; if (G) G.events.forEach(e => { e.notes.forEach(([s, f]) => gs.push({ on: e.on, s, f })); if (e.strum) gs.push({ on: e.on, s: 0, f: e.strum }); });
+      const rs = []; if (R) R.slots.forEach((sl, k) => sl && sl.forEach(nt => { if (nt.li >= 0) rs.push({ on: k * 4 / R.res, s: nt.li + 1, f: nt.f }); else if (nt.strum) rs.push({ on: k * 4 / R.res, s: 0, f: nt.strum === 'up' ? 'U' : 'D' }); }));
       if (G && R && G.chord) { chordN++; if (R.chord === G.chord) chordOk++; else errs.push(`bar ${i + 1}: chord ${G.chord} read as ${R.chord}`); }
       const used = new Set();
       gs.forEach(a => {

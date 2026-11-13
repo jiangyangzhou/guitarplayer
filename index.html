@@ -1362,9 +1362,26 @@ Am  F  C  G</textarea>
             let hT=0,hB=0; const reach=Math.round(sp*.75);
             for(let y=best.a;y<=best.a+reach;y++) hT=Math.max(hT,spread(y));
             for(let y=best.b-reach;y<=best.b;y++) hB=Math.max(hB,spread(y));
-            if(Math.max(hT,hB)>=3 && Math.max(hT,hB)>=1.8*Math.max(1,Math.min(hT,hB))) { sm.strum=hT>hB?'down':'up'; sm.sa=best.a; sm.sb=best.b; }
+            if(Math.max(hT,hB)>=3 && Math.max(hT,hB)>=1.8*Math.max(1,Math.min(hT,hB))) {
+              // In most engraved tabs (Guitar Pro, hand-set song books) the rhythm stem runs up through the staff to the fret number
+              // it carries. The number at its top spreads sideways just as an arrow head does. Three things tell them apart: the
+              // classifier reads a number there; an arrow's shaft runs unbroken to its tip while most digits are hollow or open
+              // along that column; and an arrow head has a barb on each side while a "1" has its flag on one side only.
+              const down=hT>hB, lo=down?best.a-sp*.15:best.b-sp*.85, hi=down?best.a+sp*.85:best.b+sp*.15, seen=opts.shared&&opts.shared.heads;
+              let head=false; for(const ly of st.lines){ if(ly<lo||ly>hi||head) continue; for(const dx of [0,-2,2]){ const key=(cx+dx)+','+Math.round(ly); let r=seen&&seen.get(key);
+                if(!r){ r=cropPredict(gray,W,H,{x0:cx+dx-sp*.3,x1:cx+dx+sp*.3,y0:ly-sp*.37,y1:ly+sp*.37},sp); if(seen) seen.set(key,r); }
+                if(r.d!==11&&r.d!==1&&r.prob>=.98){ head=true; break; } } }
+              let sideL=0,sideR=0,cc=0,cn=0; for(let y=down?best.a:best.b-reach;y<=(down?best.a+reach:best.b);y++){ if(ad(cx-R-3,y)&&ad(cx+R+3,y)) continue; cn++; if(ad(cx,y)||ad(cx-1,y)||ad(cx+1,y)) cc++; for(let k=2;k<=R;k++){ if(ad(cx-k,y)) sideL++; if(ad(cx+k,y)) sideR++; } }
+              const solid=cn>0&&cc/cn>=.95, even=Math.min(sideL,sideR)>=Math.max(sideL,sideR)*.5;
+              sm.headKind=head&&!solid?'note':!head&&even?'arrow':'unclear'; sm.arrow={dir:down?'down':'up',a:best.a,b:best.b};
+            }
           });
         }
+        // settle the unclear ones (a 1, 4 or 7 on a stem; an up-arrow's head the classifier takes for a digit) by what the rest of
+        // the line clearly is; a line that is nearly all numbers on stems has no arrows at all
+        { const nNote=stems.filter(sm=>sm.headKind==='note').length, nArrow=stems.filter(sm=>sm.headKind==='arrow').length;
+          stems.forEach(sm=>{ if(!sm.arrow) return; const isArrow=sm.headKind==='arrow'?nNote<nArrow*4:sm.headKind==='unclear'?nNote<=nArrow:false;
+            if(isArrow){ sm.strum=sm.arrow.dir; sm.sa=sm.arrow.a; sm.sb=sm.arrow.b; } else sm.noteHead=true; delete sm.arrow; }); }
         const singles=[]; stems.forEach(sm=>[sm.L,sm.R].forEach(o=>{ if(o.lines===1) singles.push(o.th); }));
         singles.sort((a,b)=>a-b); const m1=singles.length?singles[Math.floor(singles.length/2)]:Math.max(1,sp*.15);
         const count=o=>!o.lines?0:Math.min(3,Math.max(o.lines, o.th>=m1*2.9?3:o.th>=m1*2.1?2:1));
@@ -2129,7 +2146,8 @@ Am  F  C  G</textarea>
     let acc=0, ink=0; for(let v=0;v<256;v++){ acc+=hist[v]; if(acc>=W*H*.0008){ink=v;break;} }
     // the lightest pass catches notes printed in grey (tied continuations in some apps), which break up at the darker ones
     const cands=opts.inkThreshold?[opts.inkThreshold]:[.42,.52,.62,.72].map((f,i)=>Math.min(i<4?200:212,Math.max(80,Math.round(ink+(255-ink)*f))));
-    const runs=cands.map(td=>scanWith(imageData,Object.assign({},opts,{inkThreshold:td,labelThreshold:Math.round(ink+(255-ink)*.5)})));
+    const shared={heads:new Map()};
+    const runs=cands.map(td=>scanWith(imageData,Object.assign({},opts,{shared,inkThreshold:td,labelThreshold:Math.round(ink+(255-ink)*.5)})));
     // a line that reads as a strum tab in any pass is one: in the other passes its arrows turn into piles of false fret numbers that would
     // otherwise win on note count, so those readings of the line do not take part in the comparison
     const strumVote=runs[0].staves.map((_,si)=>runs.some(x=>x.staves.length===runs[0].staves.length&&x.staves[si].strum));
