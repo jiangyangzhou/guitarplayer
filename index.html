@@ -2180,6 +2180,13 @@ Am  F  C  G</textarea>
           if(inked(cx,cy)>=.06) r=look(cx,cy);
           else if(bare&&inked(cx,cy,232)>=.05){ r=one(cx,cy,true); for(const dx of [-2,2]){ const q=one(cx+dx,cy,true); if(q.d!==11&&q.prob>r.prob) r=q; } if(r.d!==11&&r.prob<.995) continue; if(r.d!==11) r.prob=Math.max(r.prob,.9995); }
           if(!r) continue;
+          // A two-digit fret is centred on its stem, so the stem's column falls in the gap between the digits and the look
+          // above sees no single mark there. Read one digit on each side of the column instead.
+          if((r.d===11||r.d===1||r.prob<.9995)&&inked(cx,cy)>=.1&&!st.notes.some(n=>n.li===li&&Math.abs(n.x-cx)<sp*.9)){
+            const half=dx=>cropPredict(gray,W,H,{x0:cx+dx-sp*.2,x1:cx+dx+sp*.2,y0:cy-sp*.37,y1:cy+sp*.37},sp); let pair=null;
+            for(const off of [.26,.3,.22]){ const L=half(-sp*off), R=half(sp*off); if(L.d>=1&&L.d<=2&&R.d<=9&&L.d*10+R.d<=24&&Math.min(L.prob,R.prob)>=.995&&(!pair||Math.min(L.prob,R.prob)>pair.conf)) pair={f:L.d*10+R.d,conf:Math.min(L.prob,R.prob)}; }
+            if(pair){ const hw=sp*.55; st.notes.push({li,f:pair.f,x:cx,x0:Math.round(cx-hw),x1:Math.round(cx+hw),y0:Math.round(cy-sp*.37),y1:Math.round(cy+sp*.37),conf:pair.conf,stave:si,cnnFound:true,decision:{original:null,reason:'cnn-detector-pair'},candidates:[{f:pair.f,confidence:pair.conf,evidence:[{source:'cnn-detector',strength:pair.conf}]}]}); added++; continue; }
+          }
           if(r.d===11||r.d===1||r.prob<.9995) continue;
           // a column holds one note per string; a strong answer right beside a found note on this string is that note seen again
           if(st.notes.some(n=>n.li===li&&Math.abs(n.x-r.x)<sp*.7)) continue;
