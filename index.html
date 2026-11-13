@@ -609,6 +609,15 @@ Am  F  C  G</textarea>
         else if(best>.45){n.leg='s';n.slideFrom=previous.f;}
     });
   }
+  // The four arms of an x run away from its centre: ink sits further out on the rows far from the string than on the rows
+  // next to it. The two upright strokes of an "11" (or the sides of a 0) stay where they are. Returns true for spreading arms.
+  function armsSpread(gray,W,H,cx,cy,sp,minInk=.3){
+    const r=Math.max(4,Math.round(sp*.33)), inner=r>=5?[2,3]:[2], outer=r>=5?[r-1,r]:[r]; let sum=0,n=0;
+    for(const side of [-1,1]) for(const sign of [-1,1]){
+      const at=rows=>{ let m=0,t=0; for(const dy of rows){ const y=Math.round(cy+sign*dy); if(y<0||y>=H) continue; for(let dx=0;dx<=r+2;dx++){ const x=Math.round(cx+side*dx); if(x<0||x>=W) continue; const v=(255-gray[y*W+x])/255; if(v>minInk){ m+=v; t+=v*dx; } } } return m>minInk*1.6?t/m:null; };
+      const a=at(inner), b=at(outer); if(a!=null&&b!=null){ sum+=b-a; n++; } }
+    return n>=3&&sum/n>=Math.max(1,(outer[0]-inner[0])*.45);
+  }
   // the classifier on the original grey crop around a mark (same framing as the review pass uses)
   function cropPredict(gray,W,H,n,sp,stretch){
     const hh=Math.max(sp*1.5,(n.y1-n.y0+1)*1.7),ww=Math.max(hh*.8,(n.x1-n.x0+1)*1.6),cx=(n.x0+n.x1)/2,cy=(n.y0+n.y1)/2, patch=new Float32Array(576);
@@ -1519,7 +1528,7 @@ Am  F  C  G</textarea>
       // drop small text (slide marks etc.) by comparing to typical digit height
       // (only the lower bound here: in 弹唱 tabs most marks are small ×, and a taller fret number beside them is real;
       // the upper bound is checked after classifying, against the other numbers only)
-      if(glyphs.length){ const hs=glyphs.map(g=>g.h).sort((a,b)=>a-b), med=hs[Math.floor(hs.length/2)]; glyphs=glyphs.filter(g=>g.h>=med*.72 && g.w>=med*.3); }
+      if(glyphs.length){ const hs=glyphs.map(g=>g.h).sort((a,b)=>a-b), med=hs[Math.floor(hs.length/2)]; glyphs=glyphs.filter(g=>g.h>=med*.72 && (g.w>=med*.3 || (g.w>=2&&g.h>=med*.85))); }   // (a full-height "1" in a light font is only two pixels wide)
       glyphs.forEach(g=>{g.stave=result.staves.length;}); allGlyphs.push(...glyphs);
       const rests=readRests(gray,W,H,Object.assign({},st,{stems}),bx0,bx1);
       glyphs=allGlyphs.filter(g=>g.stave===result.staves.length);
@@ -1666,7 +1675,7 @@ Am  F  C  G</textarea>
         if(n.f!==1&&n.f!==11)return;
         if(n.x1-n.x0>sp*1.1||n.y1-n.y0>sp*1.1)return;
         const sc=xScore(n.x,st.lines[n.li]);
-        if(sc.d>.28&&sc.o<.3&&sc.d-sc.o>.16){n.f='x';n.conf=Math.min(.95,.5+sc.d-sc.o);}
+        if(sc.d>.28&&sc.o<.3&&sc.d-sc.o>.16&&armsSpread(gray,W,H,n.x,st.lines[n.li],sp)){n.f='x';n.conf=Math.min(.95,.5+sc.d-sc.o);}
       });
       st.stems.forEach(sm=>{
         const cx=(sm.x0+sm.x1)/2;
@@ -1677,6 +1686,7 @@ Am  F  C  G</textarea>
           if(notes.some(n=>Math.abs(n.x-cx)<sp*.45&&n.li===li)) continue;
           // search a little to each side: the stem can hang from one arm of the ×
           let best=null; for(let ox=-Math.round(sp*.3);ox<=Math.round(sp*.3);ox++){ const r=xScore(cx+ox,cy); const sc=r.d-r.o; if(r.d>.28&&r.o<.3&&sc>.16&&(!best||sc>best.sc)) best={sc,x:cx+ox}; }
+          if(best&&!armsSpread(gray,W,H,best.x,cy,sp)) best=null;   // two upright strokes (an 11) pass the ring test too
           if(best){ const rr=sp*.3; notes.push({li,f:'x',x:best.x,x0:Math.round(best.x-rr),x1:Math.round(best.x+rr),y0:Math.round(cy-rr),y1:Math.round(cy+rr),conf:Math.min(.95,.5+best.sc)}); }
         }
       });
@@ -2116,6 +2126,7 @@ Am  F  C  G</textarea>
         let best=null;
         for(let li=0;li<6;li++){ const cy=st.lines[li]; if(cy>topY+sp*.2||cy<topY-sp*1.3) continue;
           for(let ox=-Math.round(sp*.3);ox<=Math.round(sp*.3);ox++){ const r=xScore(cx+ox,cy), sc=r.d-r.o; if(r.d>.2&&sc>.1&&(!best||sc>best.sc)) best={sc,x:cx+ox,li}; } }
+        if(best&&!armsSpread(gray,W,H,best.x,st.lines[best.li],sp,.12)) best=null;   // the two strokes of an 11 are not a faint x
         if(best){ const rr=sp*.3, cy=st.lines[best.li]; notes.push({li:best.li,f:'x',x:best.x,x0:Math.round(best.x-rr),x1:Math.round(best.x+rr),y0:Math.round(cy-rr),y1:Math.round(cy+rr),conf:Math.min(.9,.55+best.sc),stave:result.staves.indexOf(st),fromStem:true}); }
       });
     });
